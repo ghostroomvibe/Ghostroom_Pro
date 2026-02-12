@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="canonical" href="https://ghostroom.buzz/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GhostRoom — Anonymous Ephemeral Chat | The Void</title>
+    <meta name="description" content="GhostRoom is an anonymous, ephemeral chat platform. No logs. Just the void.">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        :root { 
+            --bg: #050505; --card: #121212; --accent: #ff2d55; --border: rgba(255, 255, 255, 0.08); 
+        }
+        /* Custom Themes */
+        body.light-mode { --bg: #f5f5f5; --card: #ffffff; --border: rgba(0,0,0,0.1); color: #1a1a1a; }
+        body.nebula-mode { --bg: #0f0c29; --card: #302b63; --accent: #24243e; }
+
+        body { background-color: var(--bg); color: white; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; overflow: hidden; height: 100dvh; }
+        
+        .screen { display: none; height: 100%; flex-direction: column; animation: fadeIn 0.3s ease-out; }
+        .screen.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 28px; transition: all 0.2s; position: relative; }
+        .card:active { transform: scale(0.98); }
+        
+        /* Message Bubbles */
+        .msg-wrapper { position: relative; width: 100%; touch-action: pan-y; z-index: 10; padding: 2px 0; }
+        .msg-bubble { 
+            max-width: 85%; padding: 12px 16px; border-radius: 20px; font-size: 14px; 
+            position: relative; transition: transform 0.3s; will-change: transform;
+        }
+        .msg-sent { border-bottom-right-radius: 4px; background: var(--accent); }
+        .msg-received { border-bottom-left-radius: 4px; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid var(--border); }
+        
+        /* Reactions UI */
+        .reaction-bar { display: flex; gap: 4px; margin-top: -8px; margin-left: 12px; position: relative; z-index: 20; }
+        .reaction-pill { background: #1a1a1a; border: 1px solid var(--border); border-radius: 12px; padding: 2px 6px; font-size: 10px; cursor: pointer; }
+
+        /* Media */
+        .msg-image { border-radius: 12px; max-width: 200px; margin-top: 8px; cursor: pointer; }
+        .voice-msg { display: flex; items-center: center; gap: 8px; }
+
+        /* Presence */
+        .online-indicator { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+        #chat-messages { 
+            flex: 1; overflow-y: auto; position: relative; 
+            background-image: url('https://www.transparenttextures.com/patterns/carbon-fibre.png');
+        }
+        
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        
+        /* Toast & Overlays */
+        #toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(150px); background: white; color: black; padding: 10px 20px; border-radius: 20px; font-weight: 800; transition: transform 0.3s; z-index: 2000; }
+        #toast.show { transform: translateX(-50%) translateY(0); }
+
+        .search-bar { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 8px 12px; margin: 10px; display: none; }
+    </style>
+</head>
+<body class="dark-mode">
+
+    <div id="loading-overlay" class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center hidden">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-pink-500"></div>
+    </div>
+
+    <div id="toast">ACTION COMPLETE</div>
+
+    <div id="screen-home" class="screen active p-6 overflow-y-auto pb-32 hide-scroll">
+        <header class="mt-8 mb-10 flex justify-between items-start">
+            <div>
+                <h1 class="text-4xl font-extrabold tracking-tighter italic">GHOSTROOM</h1>
+                <p class="text-white/30 text-[10px] mt-1 font-bold uppercase tracking-widest" id="user-status">Connecting to Void...</p>
+            </div>
+            <div class="flex gap-3">
+                <button id="btn-theme-toggle" class="p-2 bg-white/5 rounded-full"><i data-lucide="palette" size="18"></i></button>
+                <div id="connection-dot" class="w-2 h-2 rounded-full bg-red-500 mt-3"></div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <button id="btn-create-request" class="card p-6 text-left border-pink-500/20">
+                <i data-lucide="link" class="text-pink-500 mb-3"></i>
+                <h3 class="font-bold text-sm">Bio Link</h3>
+                <p class="text-[9px] text-white/30 font-black">PRIVATE REQUESTS</p>
+            </button>
+            <button id="btn-create-community" class="card p-6 text-left border-orange-500/20">
+                <i data-lucide="globe" class="text-orange-500 mb-3"></i>
+                <h3 class="font-bold text-sm">Public Vibe</h3>
+                <p class="text-[9px] text-white/30 font-black">GLOBAL CHAT</p>
+            </button>
+        </div>
+
+        <div class="flex justify-between items-center mb-4">
+            <h4 class="text-[10px] font-black uppercase tracking-widest text-white/20">Active Frequencies</h4>
+            <button id="btn-search-toggle" class="text-white/20"><i data-lucide="search" size="14"></i></button>
+        </div>
+        <input type="text" id="main-search" class="search-bar w-full outline-none text-sm" placeholder="Search rooms or messages...">
+        
+        <div id="history-container" class="space-y-3"></div>
+    </div>
+
+    <div id="screen-chat" class="screen">
+        <header class="p-4 flex items-center justify-between border-b border-white/5 bg-black/50 backdrop-blur-xl">
+            <div class="flex items-center gap-3">
+                <button id="btn-back" class="text-white/30"><i data-lucide="chevron-left"></i></button>
+                <div>
+                    <p class="text-xs font-black uppercase" id="chat-title">Room</p>
+                    <p class="text-[9px] text-green-500" id="presence-count"><span class="online-indicator"></span>0 Online</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button id="btn-room-settings" class="p-2 text-white/30"><i data-lucide="settings" size="18"></i></button>
+                <button id="btn-share" class="p-2 bg-pink-500 rounded-lg text-white"><i data-lucide="share-2" size="16"></i></button>
+            </div>
+        </header>
+
+        <div id="chat-messages" class="p-4 space-y-4 hide-scroll"></div>
+
+        <div id="action-preview" class="hidden px-4 py-2 bg-white/5 border-t border-white/10 flex justify-between items-center text-[10px]">
+            <div class="border-l-2 border-pink-500 pl-3">
+                <p id="action-label" class="text-pink-500 font-black uppercase">REPLYING</p>
+                <p id="action-text" class="text-white/50 truncate"></p>
+            </div>
+            <button id="btn-close-action"><i data-lucide="x" size="14"></i></button>
+        </div>
+
+        <div class="p-4 pb-8 bg-black/80">
+            <div id="media-preview" class="hidden mb-2 p-2 bg-white/5 rounded-xl flex items-center gap-2">
+                <div id="media-content" class="text-[10px] font-bold">Attachment Ready</div>
+                <button id="btn-remove-media" class="ml-auto text-red-500"><i data-lucide="trash" size="14"></i></button>
+            </div>
+
+            <form id="chat-form" class="flex items-end gap-2 bg-white/5 p-2 rounded-[24px] border border-white/10">
+                <div class="flex">
+                    <button type="button" id="btn-upload" class="w-10 h-10 flex items-center justify-center text-white/40"><i data-lucide="plus" size="20"></i></button>
+                    <button type="button" id="btn-voice" class="w-10 h-10 flex items-center justify-center text-white/40"><i data-lucide="mic" size="20"></i></button>
+                </div>
+                
+                <textarea id="chat-input" rows="1" class="flex-1 bg-transparent py-3 px-1 text-sm outline-none resize-none" placeholder="Whisper into the void..."></textarea>
+                
+                <button type="submit" id="btn-send" class="w-10 h-10 bg-white text-black rounded-full flex items-center justify-center">
+                    <i data-lucide="arrow-up" size="20"></i>
+                </button>
+            </form>
+            <input type="file" id="file-input" class="hidden" accept="image/*,application/pdf">
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, addDoc, onSnapshot, serverTimestamp, updateDoc, getDoc, query, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
+
+        // CONFIG (Replace with your own keys)
+        const firebaseConfig = {
+            apiKey: "AIzaSyCEUDD0iB4iGFSDoC0a3wCXF8PT098Su3w",
+            authDomain: "anonymous-messaging-f93c0.firebaseapp.com",
+            projectId: "anonymous-messaging-f93c0",
+            storageBucket: "anonymous-messaging-f93c0.firebasestorage.app",
+            messagingSenderId: "990716606250",
+            appId: "G-GBMJM3GM3B"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+        const appId = 'ghostroom-v5-pro';
+
+        // STATE
+        let user = null;
+        let currentRoomId = null;
+        let activeAction = null; // { type: 'reply' | 'edit', msg: Object }
+        let currentFile = null;
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+
+        // SOUNDS
+        const sounds = {
+            send: new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3'),
+            receive: new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3')
+        };
+
+        // INITIALIZE
+        lucide.createIcons();
+
+        // 1. PRESENCE SYSTEM
+        const updatePresence = async (status) => {
+            if (!user) return;
+            const pRef = doc(db, 'artifacts', appId, 'presence', user.uid);
+            await setDoc(pRef, { status, lastSeen: serverTimestamp() }, { merge: true });
+        };
+
+        // 2. AUTH
+        onAuthStateChanged(auth, (u) => {
+            if (u) {
+                user = u;
+                updatePresence('online');
+                loadHistory();
+                checkUrlHash();
+                document.getElementById('connection-dot').className = 'w-2 h-2 rounded-full bg-green-500 mt-3';
+                document.getElementById('user-status').textContent = `ID: ${u.uid.substring(0,6)}`;
+            } else {
+                signInAnonymously(auth);
+            }
+        });
+
+        // 3. FILE UPLOADS
+        document.getElementById('btn-upload').onclick = () => document.getElementById('file-input').click();
+        document.getElementById('file-input').onchange = (e) => {
+            currentFile = e.target.files[0];
+            if (currentFile) {
+                document.getElementById('media-preview').classList.remove('hidden');
+                document.getElementById('media-content').textContent = `📎 ${currentFile.name}`;
+            }
+        };
+
+        // 4. VOICE MESSAGING
+        document.getElementById('btn-voice').onclick = async () => {
+            if (!isRecording) {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('btn-voice').classList.add('text-red-500', 'animate-pulse');
+                audioChunks = [];
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                document.getElementById('btn-voice').classList.remove('text-red-500', 'animate-pulse');
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+                    currentFile = new File([audioBlob], "voice_note.mp3", { type: 'audio/mp3' });
+                    document.getElementById('media-preview').classList.remove('hidden');
+                    document.getElementById('media-content').textContent = "🎤 Voice Note Ready";
+                };
+            }
+        };
+
+        // 5. SEND LOGIC
+        document.getElementById('chat-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text && !currentFile) return;
+
+            let fileUrl = null;
+            let fileType = null;
+
+            if (currentFile) {
+                const sRef = ref(storage, `rooms/${currentRoomId}/${Date.now()}_${currentFile.name}`);
+                await uploadBytes(sRef, currentFile);
+                fileUrl = await getDownloadURL(sRef);
+                fileType = currentFile.type.startsWith('image') ? 'image' : (currentFile.type.startsWith('audio') ? 'audio' : 'file');
+            }
+
+            if (activeAction?.type === 'edit') {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId, 'messages', activeAction.msg.id), {
+                    text: text,
+                    isEdited: true,
+                    editedAt: serverTimestamp()
+                });
+            } else {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId, 'messages'), {
+                    text,
+                    uid: user.uid,
+                    fileUrl,
+                    fileType,
+                    replyTo: activeAction?.type === 'reply' ? activeAction.msg : null,
+                    createdAt: serverTimestamp(),
+                    reactions: {},
+                    readBy: [user.uid]
+                });
+                sounds.send.play();
+            }
+
+            // Reset
+            input.value = '';
+            currentFile = null;
+            activeAction = null;
+            document.getElementById('media-preview').classList.add('hidden');
+            document.getElementById('action-preview').classList.add('hidden');
+        };
+
+        // 6. CHAT LISTENER
+        const listenToChat = (rid) => {
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'rooms', rid, 'messages'), orderBy('createdAt', 'asc'), limit(50));
+            onSnapshot(q, (snap) => {
+                const container = document.getElementById('chat-messages');
+                container.innerHTML = '';
+                snap.docs.forEach(d => {
+                    const m = { id: d.id, ...d.data() };
+                    renderMessage(m, container);
+                });
+                container.scrollTop = container.scrollHeight;
+                if(snap.docChanges().some(c => c.type === 'added')) sounds.receive.play();
+            });
+        };
+
+        // 7. MESSAGE RENDERING (With Reactions & Media)
+        const renderMessage = (m, container) => {
+            const isMe = m.uid === user.uid;
+            const div = document.createElement('div');
+            div.className = `msg-wrapper flex flex-col ${isMe ? 'items-end' : 'items-start'}`;
+
+            let mediaHtml = '';
+            if (m.fileUrl) {
+                if (m.fileType === 'image') mediaHtml = `<img src="${m.fileUrl}" class="msg-image" onclick="window.open('${m.fileUrl}')">`;
+                else if (m.fileType === 'audio') mediaHtml = `<audio controls class="mt-2 h-8 w-48"><source src="${m.fileUrl}"></audio>`;
+                else mediaHtml = `<a href="${m.fileUrl}" target="_blank" class="block p-2 bg-white/10 rounded mt-2 text-[10px]">📄 Download File</a>`;
+            }
+
+            let replyHtml = m.replyTo ? `<div class="text-[9px] opacity-40 mb-1 italic">Replying to: ${m.replyTo.text.substring(0,20)}</div>` : '';
+            
+            div.innerHTML = `
+                ${replyHtml}
+                <div class="msg-bubble ${isMe ? 'msg-sent' : 'msg-received'} group">
+                    <p>${m.text}</p>
+                    ${mediaHtml}
+                    ${m.isEdited ? '<span class="text-[8px] opacity-30 mt-1 block">(edited)</span>' : ''}
+                    <div class="absolute top-0 -right-12 hidden group-hover:flex gap-1">
+                        <button onclick="handleMsgAction('reply', '${m.id}')" class="p-1 bg-white/10 rounded"><i data-lucide="corner-up-left" size="12"></i></button>
+                        ${isMe ? `<button onclick="handleMsgAction('edit', '${m.id}')" class="p-1 bg-white/10 rounded"><i data-lucide="edit" size="12"></i></button>` : ''}
+                    </div>
+                </div>
+                <div class="reaction-bar" id="react-${m.id}"></div>
+            `;
+            container.appendChild(div);
+            renderReactions(m);
+            lucide.createIcons();
+        };
+
+        // 8. REACTIONS LOGIC
+        window.handleMsgAction = async (type, mid) => {
+            const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId, 'messages', mid));
+            activeAction = { type, msg: { id: mid, ...snap.data() } };
+            document.getElementById('action-preview').classList.remove('hidden');
+            document.getElementById('action-label').textContent = type.toUpperCase();
+            document.getElementById('action-text').textContent = snap.data().text;
+        };
+
+        const renderReactions = (m) => {
+            const bar = document.getElementById(`react-${m.id}`);
+            const emojis = ['🔥', '😂', '👻', '❤️'];
+            emojis.forEach(e => {
+                const count = m.reactions?.[e]?.length || 0;
+                if (count > 0 || m.uid !== user.uid) {
+                    const p = document.createElement('div');
+                    p.className = "reaction-pill";
+                    p.textContent = `${e} ${count || ''}`;
+                    p.onclick = () => addReaction(m.id, e, m.reactions || {});
+                    bar.appendChild(p);
+                }
+            });
+        };
+
+        const addReaction = async (mid, emoji, current) => {
+            const users = current[emoji] || [];
+            const updated = users.includes(user.uid) ? users.filter(u => u !== user.uid) : [...users, user.uid];
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId, 'messages', mid), {
+                [`reactions.${emoji}`]: updated
+            });
+        };
+
+        // 9. THEME & UTILS
+        document.getElementById('btn-theme-toggle').onclick = () => {
+            const body = document.body;
+            if (body.classList.contains('dark-mode')) {
+                body.classList.replace('dark-mode', 'nebula-mode');
+            } else {
+                body.classList.replace('nebula-mode', 'dark-mode');
+            }
+        };
+
+        const checkUrlHash = () => {
+            const rid = window.location.hash.slice(1);
+            if (rid) joinRoom(rid);
+            else showScreen('home');
+        };
+
+        const joinRoom = async (rid) => {
+            currentRoomId = rid;
+            const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', rid));
+            if (snap.exists()) {
+                document.getElementById('chat-title').textContent = rid.toUpperCase();
+                showScreen('chat');
+                listenToChat(rid);
+            }
+        };
+
+        const showScreen = (id) => {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(`screen-${id}`).classList.add('active');
+        };
+
+        const loadHistory = () => {
+            const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), orderBy('timestamp', 'desc'));
+            onSnapshot(q, (snap) => {
+                const container = document.getElementById('history-container');
+                container.innerHTML = '';
+                snap.forEach(d => {
+                    const item = d.data();
+                    const div = document.createElement('div');
+                    div.className = "card p-4 flex justify-between items-center cursor-pointer";
+                    div.onclick = () => window.location.hash = item.roomId;
+                    div.innerHTML = `<div><p class="font-bold">#${item.roomId}</p><p class="text-[8px] opacity-30">${item.type}</p></div><i data-lucide="chevron-right" size="14"></i>`;
+                    container.appendChild(div);
+                });
+                lucide.createIcons();
+            });
+        };
+
+        // Create Room Helpers
+        document.getElementById('btn-create-request').onclick = async () => {
+            const rid = Math.random().toString(36).substring(7);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', rid), { owner: user.uid, type: 'private', createdAt: Date.now() });
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'history', rid), { roomId: rid, type: 'private', timestamp: Date.now() });
+            window.location.hash = rid;
+        };
+
+        document.getElementById('btn-back').onclick = () => window.location.hash = '';
+        window.onhashchange = checkUrlHash;
+
+    </script>
+</body>
+</html>
